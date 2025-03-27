@@ -3,7 +3,7 @@
     "DataVersion": 0,
     "GameVersion": "0.3.3f12",
     "GUID": "6e675142-61b6-4f52-9287-8c67c5d4e2bc",
-    "ItemString": "{\n    \"DataType\": \"ItemData\",\n    \"DataVersion\": 0,\n    \"GameVersion\": \"0.3.3f11\",\n    \"ID\": \"launderingstation\",\n    \"Quantity\": 1\n}",
+    "ItemString": "{\n    \"DataType\": \"ItemData\",\n    \"DataVersion\": 0,\n    \"GameVersion\": \"0.3.3f12\",\n    \"ID\": \"launderingstation\",\n    \"Quantity\": 1\n}",
     "LoadOrder": 0,
     "GridGUID": "4682de5b-4113-4bdf-99f8-afda0c9fabd7",
     "OriginCoordinate": {
