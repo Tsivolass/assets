@@ -213,6 +213,26 @@ return function(t, paths)
         t.assert(action == nil, 'launch during startup grace was acted on')
     end)
 
+    t.check('a hard horizontal shove is out of scope', function()
+        local rig = newRig()
+        rig:settle()
+        local action = rig:step {
+            vel = { x = 60.0, y = 40.0, z = 0.0 },
+            grounded = false,
+        }
+        t.assert(action == nil, 'horizontal force was acted on')
+    end)
+
+    t.check('being slammed downward is out of scope', function()
+        local rig = newRig()
+        rig:settle()
+        local action = rig:step {
+            vel = { x = 0.0, y = 0.0, z = -80.0 },
+            grounded = false,
+        }
+        t.assert(action == nil, 'downward force was acted on')
+    end)
+
     t.group('detector: launches are caught')
 
     t.check('a 100ft launch (24 m/s upward)', function()
@@ -220,7 +240,7 @@ return function(t, paths)
         rig:settle()
         local action = rig:step { vel = { x = 0, y = 0, z = 24.0 }, grounded = false }
         t.assert(action ~= nil, 'launch not detected')
-        t.equal(action.report.reason, 'vertical_speed')
+        t.equal(action.detected, 'vertical_speed')
         t.equal(action.clampVerticalTo, 0.0)
     end)
 
@@ -228,7 +248,7 @@ return function(t, paths)
         local rig = newRig()
         rig:settle()
         local action = rig:step { vel = { x = 0, y = 0, z = 80.0 }, grounded = false }
-        t.assert(action ~= nil and action.report.reason == 'vertical_speed')
+        t.assert(action ~= nil and action.detected == 'vertical_speed')
     end)
 
     t.check('a moderate launch caught by the velocity step', function()
@@ -239,7 +259,7 @@ return function(t, paths)
         rig:step { vel = { x = 0, y = 0, z = -3.0 }, grounded = false }
         local action = rig:step { vel = { x = 0, y = 0, z = 13.0 }, grounded = false }
         t.assert(action ~= nil, 'stepped launch not detected')
-        t.equal(action.report.reason, 'velocity_step')
+        t.equal(action.detected, 'velocity_step')
     end)
 
     t.check('a launch during a lag spike is still caught', function()
@@ -253,7 +273,7 @@ return function(t, paths)
             grounded = false,
         }
         t.assert(action ~= nil, 'launch during a lag spike was missed')
-        t.equal(action.report.reason, 'vertical_speed')
+        t.equal(action.detected, 'vertical_speed')
     end)
 
     t.check('a coord-set launch during a lag spike is still caught', function()
@@ -267,7 +287,7 @@ return function(t, paths)
             grounded = false,
         }
         t.assert(action ~= nil, 'coord-set launch during a lag spike was missed')
-        t.equal(action.report.reason, 'position_jump')
+        t.equal(action.detected, 'position_jump')
     end)
 
     t.check('a straight coord set upward', function()
@@ -279,18 +299,17 @@ return function(t, paths)
             grounded = false,
         }
         t.assert(action ~= nil, 'coord-set launch not detected')
-        t.equal(action.report.reason, 'position_jump')
+        t.equal(action.detected, 'position_jump')
     end)
 
-    t.check('a sideways warp', function()
+    t.check('a sideways warp is out of scope and ignored', function()
         local rig = newRig()
         rig:settle()
         local action = rig:step {
             pos = { x = 300.0, y = 0.0, z = rig.pos.z },
-            vel = { x = 0, y = 0, z = 0.0 },
+            vel = { x = 40.0, y = 0.0, z = 0.0 },
         }
-        t.assert(action ~= nil, 'sideways warp not detected')
-        t.equal(action.report.reason, 'teleport')
+        t.assert(action == nil, 'horizontal movement was acted on')
     end)
 
     t.check('a launch while in a vehicle', function()
@@ -301,7 +320,7 @@ return function(t, paths)
             inVehicle = true, grounded = false,
         }
         t.assert(action ~= nil, 'vehicle launch not detected')
-        t.assert(action.report.inVehicle == true)
+        t.assert(action.detected ~= nil)
     end)
 
     t.check('vehicles can be exempted entirely', function()
@@ -337,15 +356,15 @@ return function(t, paths)
         t.assert(rig:step() == nil, 'still correcting long after the incident')
     end)
 
-    t.check('only one report per incident', function()
+    t.check('the correction keeps running while force is reapplied', function()
         local rig = newRig()
         rig:settle()
-        local reports = 0
+        local corrected = 0
         for _ = 1, 40 do
             local action = rig:step { vel = { x = 0, y = 0, z = 30.0 }, grounded = false }
-            if action and action.report then reports = reports + 1 end
+            if action and action.clampVerticalTo == 0.0 then corrected = corrected + 1 end
         end
-        t.equal(reports, 1)
+        t.equal(corrected, 40, 'every frame of a sustained launch must be corrected')
     end)
 
     t.check('the player is put back once thrown clear', function()

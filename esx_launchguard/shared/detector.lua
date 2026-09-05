@@ -1,13 +1,7 @@
--- esx_launchguard/shared/detector.lua
---
--- Pure launch-detection logic: no natives, no globals beyond the export
--- below, so it can be reasoned about and tested in isolation.
---
--- The client samples the local player every frame and feeds a plain table
--- of numbers/booleans into Detector:update(). The detector decides whether
--- the motion is physically possible for a legitimate player, and returns
--- the correction to apply (if any). It never bans, kicks or reports on its
--- own - it only describes what it saw.
+-- Decides whether a player's upward motion is physically possible.
+-- Pure logic: no natives, so it can be reasoned about and tested on its own.
+-- The client samples the local player each frame and passes the numbers in;
+-- this returns the correction to apply, or nil when the frame looks normal.
 
 local Detector = {}
 Detector.__index = Detector
@@ -24,19 +18,18 @@ end
 function Detector.new(cfg, now)
     now = now or 0
     return setmetatable({
-        cfg          = cfg,
-        prev         = nil,
-        safePos      = nil,
-        safeAt       = 0,
-        clampUntil   = 0,
-        graceUntil   = now + cfg.StartupGraceMs,
-        lastReportAt = nil,
-        incidents    = 0,
+        cfg        = cfg,
+        prev       = nil,
+        safePos    = nil,
+        safeAt     = 0,
+        clampUntil = 0,
+        graceUntil = now + cfg.StartupGraceMs,
+        incidents  = 0,
     }, Detector)
 end
 
--- Called when the ped is replaced (respawn, model change) so stale motion
--- history can't be compared against a brand new position.
+-- Called when the ped is replaced, so motion history from the old one is not
+-- compared against a brand new position.
 function Detector:reset(now, graceMs)
     self.prev       = nil
     self.clampUntil = 0
@@ -44,20 +37,19 @@ function Detector:reset(now, graceMs)
     self.graceUntil = now + (graceMs or self.cfg.RespawnGraceMs)
 end
 
--- States where extreme vertical motion is legitimate, or where correcting
--- it would fight the game rather than a cheat.
+-- States where fast upward motion is legitimate, or where correcting it would
+-- fight the game instead of a cheat.
 function Detector:isExempt(f)
     local cfg = self.cfg
-    if f.suppressed then return true, 'suppressed' end
-    if f.dead then return true, 'dead' end
-    if f.parachuting then return true, 'parachuting' end
-    if f.swimming then return true, 'swimming' end
-    if f.climbing then return true, 'climbing' end
-    if f.switchActive then return true, 'switch' end
-    if f.aircraft and not cfg.GuardInAircraft then return true, 'aircraft' end
-    if f.inVehicle and not cfg.GuardInVehicle then return true, 'in_vehicle' end
-    if f.now < self.graceUntil then return true, 'grace' end
-    return false
+    return f.suppressed
+        or f.dead
+        or f.parachuting
+        or f.swimming
+        or f.climbing
+        or f.switchActive
+        or (f.aircraft and not cfg.GuardInAircraft)
+        or (f.inVehicle and not cfg.GuardInVehicle)
+        or f.now < self.graceUntil
 end
 
 function Detector:markSafe(f)
@@ -71,8 +63,7 @@ function Detector:markSafe(f)
     end
 end
 
--- Returns reason, magnitude for motion that no legitimate player can
--- produce, or nil when the frame looks normal.
+-- Returns reason, magnitude for upward motion no legitimate player produces.
 function Detector:classify(f, prev)
     if not prev then return nil end
 
@@ -81,21 +72,19 @@ function Detector:classify(f, prev)
 
     local maxSpeed = f.inVehicle and cfg.VehicleMaxVerticalSpeed or cfg.MaxVerticalSpeed
     local maxStep  = f.inVehicle and cfg.VehicleMaxVerticalStep or cfg.MaxVerticalStep
-    local maxWarp  = f.inVehicle and cfg.VehicleMaxTeleportSpeed or cfg.MaxTeleportSpeed
 
     -- Sustained upward speed. Nothing on foot climbs this fast.
     if f.vel.z > maxSpeed then
         return 'vertical_speed', f.vel.z
     end
 
-    -- A one-frame jump in upward velocity. Landing also produces a large
-    -- positive step (falling fast, then stopped), so this only counts when
-    -- the player is left moving upward hard afterwards.
+    -- A one frame jump in upward velocity. Landing produces a large positive
+    -- step too (falling fast, then stopped), so this only counts when the
+    -- player is left genuinely rising afterwards.
     --
-    -- Skipped on long frames: during a lag spike, several hundred ms of
-    -- perfectly normal acceleration (a helicopter spooling into a climb)
-    -- arrives as a single large step. Launches during a spike are still
-    -- caught by the absolute speed and position checks below.
+    -- Skipped on long frames: during a lag spike several hundred ms of normal
+    -- acceleration arrives as a single large step. A launch during a spike is
+    -- still caught by the two checks either side of this one.
     if f.dt <= cfg.MaxStepCheckFrameTime then
         local dvz = f.vel.z - prev.vel.z
         if dvz > maxStep and f.vel.z > cfg.MinUpwardForStep then
@@ -103,32 +92,25 @@ function Detector:classify(f, prev)
         end
     end
 
-    -- Position moved up faster than the velocity could explain: a coord
-    -- set rather than a force. Scaled by frame time so a lag spike on a
-    -- slow client isn't mistaken for a launch.
+    -- Moved upward faster than the velocity can explain: a coord set rather
+    -- than a force. Rate based, so a lag spike on a slow client is not
+    -- mistaken for one.
     local dz = f.pos.z - prev.pos.z
     if dz > cfg.MinVerticalPositionStep and (dz / dt) > cfg.MaxVerticalPositionSpeed then
         return 'position_jump', dz
     end
 
-    -- Same idea in any direction, to catch a sideways warp.
-    local moved = dist3(f.pos, prev.pos)
-    if moved > cfg.MinTeleportStep and (moved / dt) > maxWarp then
-        return 'teleport', moved
-    end
-
     return nil
 end
 
--- One frame. Returns nil, or an action table:
---   clampVerticalTo : cap the ped's upward velocity at this value
---   restore         : coords to put the ped back to, when it was thrown far
---   report          : incident details, only on the first frame of an
---                     incident and at most once per ReportCooldownMs
+-- One frame. Returns nil, or an action:
+--   clampVerticalTo  cap the ped's upward velocity at this value
+--   restore          coords to put the ped back to, once thrown clear
+--   detected         reason string, on the first frame of an incident only
 function Detector:update(f)
     local cfg  = self.cfg
     local prev = self.prev
-    self.prev = { pos = copy3(f.pos), vel = copy3(f.vel), now = f.now }
+    self.prev = { pos = copy3(f.pos), vel = copy3(f.vel) }
 
     if self:isExempt(f) then
         self.clampUntil = 0
@@ -141,7 +123,6 @@ function Detector:update(f)
         self.clampUntil = f.now + cfg.ClampWindowMs
     end
 
-    -- Outside an active incident there is nothing to correct.
     if f.now >= self.clampUntil then
         if f.grounded then self:markSafe(f) end
         return nil
@@ -157,24 +138,15 @@ function Detector:update(f)
         end
     end
 
-    if reason and (self.lastReportAt == nil or (f.now - self.lastReportAt) >= cfg.ReportCooldownMs) then
-        self.lastReportAt = f.now
-        self.incidents    = self.incidents + 1
-        action.report = {
-            reason      = reason,
-            magnitude   = magnitude,
-            verticalVel = f.vel.z,
-            pos         = copy3(f.pos),
-            rise        = self.safePos and (f.pos.z - self.safePos.z) or 0.0,
-            inVehicle   = f.inVehicle and true or false,
-        }
+    if reason then
+        self.incidents = self.incidents + 1
+        action.detected = reason
+        action.magnitude = magnitude
     end
 
     return action
 end
 
--- FiveM loads this as a shared script; the tests dofile it. Both pick the
--- module up from this global.
 LaunchDetector = Detector
 
 return Detector

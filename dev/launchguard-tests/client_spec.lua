@@ -45,10 +45,10 @@ return function(t, paths)
         t.equal(#mock.log.velocitySets, before, 'jump was corrected')
     end)
 
-    t.check('no report is sent during normal play', function()
+    t.check('a horizontal shove is left alone', function()
         load()
-        mock.ticks(120)
-        t.equal(#mock.serverEvents, 0)
+        frame(nil, { x = 70.0, y = 0.0, z = 0.0 }, { inAir = true })
+        t.equal(#mock.log.velocitySets, 0, 'horizontal force was corrected')
     end)
 
     t.group('client: a launch is cancelled')
@@ -90,30 +90,14 @@ return function(t, paths)
         t.assert(mock.log.clearTasks > 0, 'ragdoll not cleared')
     end)
 
-    t.check('the incident is reported to the server once', function()
+    t.check('nothing is sent anywhere', function()
         load()
         for _ = 1, 30 do
             frame(nil, { x = 0, y = 0, z = 40.0 }, { inAir = true })
         end
-        t.equal(#mock.serverEvents, 1, 'expected exactly one report')
-        local ev = mock.lastServerEvent()
-        t.equal(ev.name, 'esx_launchguard:report')
-        t.equal(ev.payload.reason, 'vertical_speed')
-        t.assert(ev.payload.magnitude >= 40.0)
-    end)
-
-    t.check('the victim is told it was blocked', function()
-        load()
-        frame(nil, { x = 0, y = 0, z = 40.0 }, { inAir = true })
-        t.equal(mock.notifications[1], Config.VictimMessage)
-    end)
-
-    t.check('reporting can be turned off', function()
-        load { ReportToServer = false, NotifyVictim = false }
-        frame(nil, { x = 0, y = 0, z = 40.0 }, { inAir = true })
-        t.equal(#mock.serverEvents, 0)
-        t.equal(#mock.notifications, 0)
-        t.assert(mock.lastVelocitySet() ~= nil, 'correction should still apply')
+        t.equal(#mock.serverEvents, 0, 'the client should not talk to a server')
+        t.equal(#mock.notifications, 0, 'the client should not notify')
+        t.assert(mock.lastVelocitySet() ~= nil, 'but it must still correct')
     end)
 
     t.check('a pilot is left alone', function()
@@ -121,7 +105,6 @@ return function(t, paths)
         frame(nil, { x = 0, y = 0, z = 90.0 },
             { inAir = true, inVehicle = true, inHeli = true })
         t.equal(#mock.log.velocitySets, 0, 'aircraft climb was corrected')
-        t.equal(#mock.serverEvents, 0)
     end)
 
     t.group('client: suppression export')
@@ -131,7 +114,6 @@ return function(t, paths)
         exports['esx_launchguard']:SuppressFor(2000)
         frame({ x = 900.0, y = 900.0, z = 300.0 }, { x = 0, y = 0, z = 40.0 }, { inAir = true })
         t.equal(#mock.log.velocitySets, 0, 'corrected while suppressed')
-        t.equal(#mock.serverEvents, 0)
     end)
 
     t.check('the guard comes back after suppression expires', function()
@@ -162,33 +144,29 @@ return function(t, paths)
         mock.ped.dead = true
         mock.ticks(30)
         -- Respawn: alive again, somewhere else entirely.
+        -- Respawning at a hospital is a large vertical move, which is
+        -- exactly the shape this resource reacts to.
         mock.ped.dead = false
-        frame({ x = 400.0, y = -900.0, z = 30.0 }, { x = 0, y = 0, z = 0.0 }, { inAir = false })
+        frame({ x = 400.0, y = -900.0, z = 95.0 }, { x = 0, y = 0, z = 0.0 }, { inAir = false })
         mock.ticks(5)
-        t.equal(#mock.serverEvents, 0, 'respawn reported as a launch')
+        t.equal(exports['esx_launchguard']:GetIncidentCount(), 0,
+            'respawn was detected as a launch')
         t.equal(#mock.log.coordSets, 0, 'respawn position was overwritten')
     end)
 
     t.check('a new ped handle resets history', function()
         load()
         mock.ped.handle = 42
-        frame({ x = 800.0, y = 800.0, z = 80.0 }, { x = 0, y = 0, z = 0.0 })
+        frame({ x = 800.0, y = 800.0, z = mock.ped.pos.z + 70.0 }, { x = 0, y = 0, z = 0.0 })
         mock.ticks(5)
-        t.equal(#mock.serverEvents, 0, 'ped change reported as a launch')
+        t.equal(exports['esx_launchguard']:GetIncidentCount(), 0,
+            'ped change detected as a launch')
     end)
 
-    t.group('client: ownership hardening')
-
-    t.check('off by default', function()
+    t.check('the ped network id is left alone', function()
         load()
-        t.equal(#mock.log.migrateLocks, 0)
-    end)
-
-    t.check('locks migration when enabled', function()
-        load { LockNetworkOwnership = true }
-        t.assert(#mock.log.migrateLocks > 0, 'migration was not locked')
-        t.equal(mock.log.migrateLocks[1].toggle, false)
-        t.equal(mock.log.migrateLocks[1].netId, mock.ped.netId)
+        frame(nil, { x = 0, y = 0, z = 40.0 }, { inAir = true })
+        t.equal(#mock.log.migrateLocks, 0, 'resource should not touch ownership')
     end)
 
     t.group('client: missing natives degrade safely')
