@@ -1,11 +1,3 @@
--- Cancels cheat launches on the client of the player being launched.
---
--- A ped's position is authoritative on its owner's client, so however the
--- launch is delivered (forced entity control, an invisible explosion, a punt
--- object, a coord set) the result passes through this client's physics before
--- it becomes a position anyone else sees. Cancelling it here means the jump
--- never happens.
-
 local suppressedUntil = 0
 local lastPed = nil
 local wasDead = false
@@ -17,8 +9,6 @@ local function debugPrint(...)
     if Config.Debug then print(...) end
 end
 
--- A few state natives are absent on older builds. Missing ones read as false
--- rather than erroring out mid frame.
 local function optional(name)
     local fn = _G[name]
     if type(fn) == 'function' then return fn end
@@ -35,8 +25,6 @@ local parachuteState = optional('GetPedParachuteState')
 local isInPlane      = optional('IsPedInAnyPlane')
 local isInHeli       = optional('IsPedInAnyHeli')
 
--- Other resources call this around a legitimate teleport or scripted launch so
--- the guard stands down:  exports['esx_launchguard']:SuppressFor(1500)
 local function suppressFor(ms)
     ms = tonumber(ms) or 0
     if ms <= 0 then return end
@@ -77,9 +65,7 @@ local function sampleFrame(ped, now)
 end
 
 local function applyCorrection(ped, action)
-    -- Only the upward component is capped. Downward motion is left alone so
-    -- gravity, falling and fall damage all behave normally.
-    local vel = GetEntityVelocity(ped)
+ local vel = GetEntityVelocity(ped)
     if vel.z > action.clampVerticalTo then
         SetEntityVelocity(ped, vel.x, vel.y, action.clampVerticalTo)
     end
@@ -106,7 +92,6 @@ CreateThread(function()
         local ped = PlayerPedId()
         local now = GetGameTimer()
 
-        -- A new ped means the motion history belongs to someone else.
         if ped ~= lastPed then
             lastPed = ped
             detector:reset(now, Config.RespawnGraceMs)
