@@ -2,8 +2,8 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-description 'Cancels cheat launches that throw players into the air'
-version '2.0.0'
+description 'stamataei cheaters apo to na petane panw ton user kai na trwei ban :) //made by tsivolakos'
+version '1.0'
 
 shared_script 'config.lua'
 
