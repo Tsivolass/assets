@@ -1,8 +1,3 @@
--- Decides whether a player's upward motion is physically possible.
--- Pure logic: no natives, so it can be reasoned about and tested on its own.
--- The client samples the local player each frame and passes the numbers in;
--- this returns the correction to apply, or nil when the frame looks normal.
-
 local Detector = {}
 Detector.__index = Detector
 
@@ -28,8 +23,6 @@ function Detector.new(cfg, now)
     }, Detector)
 end
 
--- Called when the ped is replaced, so motion history from the old one is not
--- compared against a brand new position.
 function Detector:reset(now, graceMs)
     self.prev       = nil
     self.clampUntil = 0
@@ -37,8 +30,6 @@ function Detector:reset(now, graceMs)
     self.graceUntil = now + (graceMs or self.cfg.RespawnGraceMs)
 end
 
--- States where fast upward motion is legitimate, or where correcting it would
--- fight the game instead of a cheat.
 function Detector:isExempt(f)
     local cfg = self.cfg
     return f.suppressed
@@ -63,7 +54,6 @@ function Detector:markSafe(f)
     end
 end
 
--- Returns reason, magnitude for upward motion no legitimate player produces.
 function Detector:classify(f, prev)
     if not prev then return nil end
 
@@ -73,18 +63,11 @@ function Detector:classify(f, prev)
     local maxSpeed = f.inVehicle and cfg.VehicleMaxVerticalSpeed or cfg.MaxVerticalSpeed
     local maxStep  = f.inVehicle and cfg.VehicleMaxVerticalStep or cfg.MaxVerticalStep
 
-    -- Sustained upward speed. Nothing on foot climbs this fast.
     if f.vel.z > maxSpeed then
         return 'vertical_speed', f.vel.z
     end
 
-    -- A one frame jump in upward velocity. Landing produces a large positive
-    -- step too (falling fast, then stopped), so this only counts when the
-    -- player is left genuinely rising afterwards.
-    --
-    -- Skipped on long frames: during a lag spike several hundred ms of normal
-    -- acceleration arrives as a single large step. A launch during a spike is
-    -- still caught by the two checks either side of this one.
+
     if f.dt <= cfg.MaxStepCheckFrameTime then
         local dvz = f.vel.z - prev.vel.z
         if dvz > maxStep and f.vel.z > cfg.MinUpwardForStep then
@@ -92,9 +75,7 @@ function Detector:classify(f, prev)
         end
     end
 
-    -- Moved upward faster than the velocity can explain: a coord set rather
-    -- than a force. Rate based, so a lag spike on a slow client is not
-    -- mistaken for one.
+
     local dz = f.pos.z - prev.pos.z
     if dz > cfg.MinVerticalPositionStep and (dz / dt) > cfg.MaxVerticalPositionSpeed then
         return 'position_jump', dz
@@ -103,10 +84,6 @@ function Detector:classify(f, prev)
     return nil
 end
 
--- One frame. Returns nil, or an action:
---   clampVerticalTo  cap the ped's upward velocity at this value
---   restore          coords to put the ped back to, once thrown clear
---   detected         reason string, on the first frame of an incident only
 function Detector:update(f)
     local cfg  = self.cfg
     local prev = self.prev
